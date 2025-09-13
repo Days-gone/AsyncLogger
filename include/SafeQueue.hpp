@@ -1,5 +1,6 @@
 #pragma once
 
+#include <condition_variable>
 #include <cstddef>
 #include <mutex>
 #include <queue>
@@ -11,13 +12,14 @@ public:
 
   /* Function */
   auto enqueue(T ele) -> void;
-  auto dequeue() -> T;
-  auto empty() -> bool;
+  auto dequeue(T &ref) -> bool;
 
 private:
-  size_t max_len_;
+  size_t max_len_ = 10;
   std::mutex mtx_;
-  std::queue<T> queue;
+  std::condition_variable cv_;
+  std::queue<T> queue_;
+  bool shut_down_ = false;
 };
 
 /**
@@ -43,40 +45,35 @@ template <typename T> inline SafeQueue<T>::~SafeQueue() {}
  * @param ele
  */
 template <typename T> inline auto SafeQueue<T>::enqueue(T ele) -> void {
-  this->mtx_.lock();
-  if (this->queue.size() >= this->max_len_) {
-    this->mtx_.unlock();
-    return;
+  std::unique_lock<std::mutex> lock(this->mtx_);
+
+  while (this->queue_.size() >= this->max_len_) {
+    this->cv_.wait(lock);
   }
-  this->queue.push(ele);
-  this->mtx_.unlock();
+  this->queue_.push(ele);
+  this->cv_.notify_one();
 }
 
 /**
  * @brief Return a value from the queue. Should always call empty() before
  * calling this function.
+ * @todo return a false when the queue is shut_down.
  *
  * @tparam T
  * @return T
  */
-template <typename T> inline auto SafeQueue<T>::dequeue() -> T {
-  this->mtx_.lock();
-  T ele = this->queue.front();
-  this->queue.pop();
-  this->mtx_.unlock();
-  return ele;
-}
+template <typename T> inline auto SafeQueue<T>::dequeue(T &ref) -> bool {
+  std::unique_lock<std::mutex> lock(this->mtx_);
 
-/**
- * @brief Check whether the Queue is empty or not, return a bool value.
- *
- * @tparam T
- * @return true
- * @return false
- */
-template <typename T> inline auto SafeQueue<T>::empty() -> bool {
-  this->mtx_.lock();
-  bool res = this->queue.empty();
-  this->mtx_.unlock();
-  return res;
+  while (this->queue_.empty() && !this->shut_down_) {
+    this->cv_.wait(lock);
+  }
+  if (this->shut_down_) {
+    return false;
+  }
+  
+  ref = this->queue_.front();
+  this->queue_.pop();
+  this->cv_.notify_one();
+  return true;
 }
