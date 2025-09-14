@@ -13,6 +13,7 @@ public:
   /* Function */
   auto enqueue(T ele) -> void;
   auto dequeue(T &ref) -> bool;
+  auto shutdown() -> void;
 
 private:
   size_t max_len_ = 10;
@@ -57,7 +58,6 @@ template <typename T> inline auto SafeQueue<T>::enqueue(T ele) -> void {
 /**
  * @brief Return a value from the queue. Should always call empty() before
  * calling this function.
- * @todo return a false when the queue is shut_down.
  *
  * @tparam T
  * @return T
@@ -71,9 +71,19 @@ template <typename T> inline auto SafeQueue<T>::dequeue(T &ref) -> bool {
   if (this->shut_down_) {
     return false;
   }
-  
+
   ref = this->queue_.front();
   this->queue_.pop();
   this->cv_.notify_one();
   return true;
+}
+/**
+ * @brief Shut down the queue.
+ *
+ * @tparam T
+ */
+template <typename T> inline auto SafeQueue<T>::shutdown() -> void {
+  std::unique_lock<std::mutex> lock(this->mtx_);
+  this->shut_down_ = true;
+  this->cv_.notify_all();
 }

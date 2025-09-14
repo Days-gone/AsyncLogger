@@ -18,7 +18,9 @@ target_link_libraries(test_lib PRIVATE GTest::gtest GTest::gtest_main pthread)
 add_executable(test_queue tests/test_queue.cpp)
 target_link_libraries(test_queue PRIVATE GTest::gtest GTest::gtest_main pthread)
 
-
+add_executable(test_logger tests/test_logger.cpp)
+target_link_libraries(test_logger PRIVATE GTest::gtest GTest::gtest_main pthread)
 
 add_test(NAME test_lib COMMAND test_lib)
 add_test(NAME test_queue COMMAND test_queue)
+add_test(NAME test_logger COMMAND test_logger)
