@@ -47,11 +47,17 @@ template <typename T> inline SafeQueue<T>::~SafeQueue() {}
  */
 template <typename T> inline auto SafeQueue<T>::enqueue(T ele) -> void {
   std::unique_lock<std::mutex> lock(this->mtx_);
+  if (this->shut_down_) {
+    return ;
+  }
 
-  while (this->queue_.size() >= this->max_len_) {
+  while (this->queue_.size() >= this->max_len_ && !this->shut_down_) {
     this->cv_.wait(lock);
   }
-  this->queue_.push(ele);
+  if (this->shut_down_) {
+    return ;
+  }
+  this->queue_.push(std::move(ele));
   this->cv_.notify_one();
 }
 
@@ -68,11 +74,11 @@ template <typename T> inline auto SafeQueue<T>::dequeue(T &ref) -> bool {
   while (this->queue_.empty() && !this->shut_down_) {
     this->cv_.wait(lock);
   }
-  if (this->shut_down_) {
+  if (this->queue_.empty()) {
     return false;
   }
-
-  ref = this->queue_.front();
+  
+  ref = std::move(this->queue_.front());
   this->queue_.pop();
   this->cv_.notify_one();
   return true;

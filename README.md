@@ -1,66 +1,57 @@
 # AsyncLogger
 本仓库用于 C++ 实现异步日志器。
 
-## 步骤
+## 环境搭建
+本项目使用 `cmake` 与 `g++`，依赖通过 `vcpkg` 管理。
 
-**1.环境搭建**
-
-本项目使用 `cmake` 和 `g++`，并通过 `vcpkg` 管理依赖包。  
-请按如下步骤配置环境：
 ```bash
 sudo apt install g++ cmake
 export VCPKG_ROOT="/path/to/your/vcpkg"
+./vcpkg install gtest
 ```
 
-**2.实现 SafeQueue**
-
-我们需要一个线程安全的队列，首先实现这个多线程安全的队列。  
-在不考虑队列在生命周期中shut_down的情况下，先实现`enqueue`和`dequeue`两个方法。  
-队列首先有一个最大容量，其次还需要使用`mutex`和`condition_variable`来实现高效的线程间协同。
-```cpp
-template <typename T> class SafeQueue {
-public:
-  SafeQueue(size_t max_len);
-  ~SafeQueue();
-
-  /* Function */
-  auto enqueue(T ele) -> void;
-  auto dequeue() -> T;
-  auto empty() -> bool;
-
-private:
-  size_t max_len_ = 0;
-  std::mutex mtx_;
-  std::condition_variable cv_;
-  std::queue<T> queue;
-  bool shut_down_ = false;
-};
+## 构建与测试
+```bash
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build
+ctest --test-dir build
 ```
-接下来实现一个不考虑shu_down的方法集合,此处先不考虑构造函数和析构函数相关的函数实现。
+
+## 实现步骤概述
+
+### 1. 实现 SafeQueue
+构建线程安全队列，提供 `enqueue`、`dequeue`、`shutdown` 等接口，利用 `std::mutex` 与 `std::condition_variable` 保证在高并发下的安全访问，并在关闭后阻止新元素加入、唤醒等待线程。
+
+### 2. 实现 Logger
+- 构造时打开日志文件并启动后台线程。
+- `log()` 负责格式化字符串并入队。
+- `process()` 在独立线程中循环 `dequeue`，将日志写入文件。
+- 析构或显式调用 `shutdown()` 时停止队列并等待线程退出，确保剩余日志全部落盘。
+
+### 3. 支持简单格式化
+使用 `{}` 作为占位符，逐个替换可变参数；多出来的占位符保持原样，便于诊断。
+
+## 示例
 ```cpp
-template <typename T> inline auto SafeQueue<T>::enqueue(T ele) -> void {
-  std::unique_lock<std::mutex> lock(this->mtx_);
+#include <Logger.hpp>
 
-  while (this->queue_.size() >= this->max_len_) {
-    this->cv_.wait(lock);
-  }
-  this->queue_.push(ele);
-  this->cv_.notify_one();
-}
-
-template <typename T> inline auto SafeQueue<T>::dequeue(T &ref) -> bool {
-  std::unique_lock<std::mutex> lock(this->mtx_);
-
-  while (this->queue_.empty() && !this->shut_down_) {
-    this->cv_.wait(lock);
-  }
-  if (this->shut_down_) {
-    return false;
-  }
-  
-  ref = this->queue_.front();
-  this->queue_.pop();
-  this->cv_.notify_one();
-  return true;
+int main() {
+  Logger logger("app.log");
+  logger.log("User {} logged in", 42);
+  return 0;
 }
 ```
+
+## 目录结构
+- `include/`：`SafeQueue` 与 `Logger` 接口
+- `tests/`：基于 Google Test 的功能与压力测试
+- `CMakeLists.txt`：构建配置
+
+## 运行测试
+核心测试覆盖：
+- 析构时无死锁 (`LoggerStress.NoDeadlockOnDestruction`)
+- 多线程高压写入 (`LoggerStress.MultiThreadedHighPressure`)
+- 吞吐量评估 (`LoggerStress.ThroughputIsAcceptable`)
+- 基础功能 (`LoggerBasic.*`)
+
+执行 `ctest` 后可在 `build/Testing/Temporary` 查看测试日志。

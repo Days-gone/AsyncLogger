@@ -26,14 +26,19 @@ private:
 };
 
 inline Logger::Logger(const std::string &filename)
-    : log_queue_(10), log_file_(filename, std::ios::out | std::ios::app),
-      worker_(std::thread(&Logger::process, this)) {
+    : log_queue_(10), log_file_(filename, std::ios::out | std::ios::app) {
   if (!log_file_.is_open()) {
     throw std::runtime_error("Failed to Open the log file.");
   }
+  worker_ = std::thread(&Logger::process, this);
 }
 
-inline Logger::~Logger() { this->worker_.join(); }
+inline Logger::~Logger() {
+  this->shutdown();
+  if (this->worker_.joinable()) {
+    this->worker_.join();
+  }
+}
 
 template <typename... Args>
 auto inline Logger::log(const std::string &format_str, Args &&...args) -> void {
@@ -59,6 +64,7 @@ auto inline Logger::format(const std::string &format_str, Args &&...args)
   while (true) {
     size_t place_holder_pos = format_str.find("{}", pos);
     if (place_holder_pos == std::string::npos) {
+      res << format_str.substr(pos);
       break;
     }
     res << format_str.substr(pos, place_holder_pos - pos);
